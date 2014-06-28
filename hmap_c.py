@@ -6,281 +6,163 @@ from PIL import Image
 import collections
 import random
 
-script, source_image, target_image = argv
+RGB_Keys = ['R','G','B']
+#source and target images
+srcImg = None
+tgtImg = None
 
-#load our source and target images
-srcImg = Image.open(source_image)
-tgtImg = Image.open(target_image)
+#pixel maps
+srcPix = None
+tgtPix = None
 
-srcImg.show()
-tgtImg.show()
+#histograms
+srcHist = None
+tgtHist = None
 
-#image data
-width, height = srcImg.size
+#the different bins
+equalBins = {'R':collections.deque(), 'G':collections.deque(),'B':collections.deque()}
+excessBins = {'R':collections.deque(), 'G':collections.deque(),'B':collections.deque()}
+deficitBins = {'R':collections.deque(), 'G':collections.deque(),'B':collections.deque()}
 
-#load pixel maps
-srcPix = srcImg.load()
-tgtPix = tgtImg.load()
+pxlsByVal = {}
+
 
 #Get histograms of the images
 #Now taking 3 different histograms for each image; 1 for each color channel
-srcHist_R = srcImg.histogram()[:256]
-tgtHist_R = tgtImg.histogram()[:256]
 
-srcHist_G = srcImg.histogram()[256:512]
-tgtHist_G = tgtImg.histogram()[256:512]
-
-srcHist_B = srcImg.histogram()[512:]
-tgtHist_B = tgtImg.histogram()[512:]
-
-#make value lists
-pxlsByVal_R = [set() for _ in range(256)]
-
-for i in range(width):
-    for j in range(height):
-        value = srcPix[i, j][0]
-        pxlsByVal_R[value].add((i,j))
-
-pxlsByVal_G = [set() for _ in range(256)]
-
-for i in range(width):
-    for j in range(height):
-        value = srcPix[i, j][1]
-        pxlsByVal_G[value].add((i,j))
-
-pxlsByVal_B = [set() for _ in range(256)]
-
-for i in range(width):
-    for j in range(height):
-        value = srcPix[i, j][2]
-        pxlsByVal_B[value].add((i,j))
-
-print("pxlsByVal created...")
-
-equalBins_R = collections.deque()
-excessBins_R = collections.deque()
-deficitBins_R = collections.deque()
-
-equalBins_G = collections.deque()
-excessBins_G = collections.deque()
-deficitBins_G = collections.deque()
-
-equalBins_B = collections.deque()
-excessBins_B = collections.deque()
-deficitBins_B = collections.deque()
-
-#sort bins into lists
-for i, _ in enumerate(srcHist_R):
-    src_i = srcHist_R[i]
-    tgt_i = tgtHist_R[i]
-    if src_i < tgt_i:
-        deficitBins_R.append(i)
-    elif src_i > tgt_i:
-        excessBins_R.append(i)
-    else:
-        equalBins_R.append(i)
-        
-for i, _ in enumerate(srcHist_G):
-    src_i = srcHist_G[i]
-    tgt_i = tgtHist_G[i]
-    if src_i < tgt_i:
-        deficitBins_G.append(i)
-    elif src_i > tgt_i:
-        excessBins_G.append(i)
-    else:
-        equalBins_G.append(i)
-
-for i, _ in enumerate(srcHist_B):
-    src_i = srcHist_B[i]
-    tgt_i = tgtHist_B[i]
-    if src_i < tgt_i:
-        deficitBins_B.append(i)
-    elif src_i > tgt_i:
-        excessBins_B.append(i)
-    else:
-        equalBins_B.append(i)
-
-print("For R\n#equal bins: %s\t#excess bins: %s\t#deficit bins: %s" % tuple(
-    map(len, (equalBins_R, excessBins_R, deficitBins_R))))
-
-print("For G\n#equal bins: %s\t#excess bins: %s\t#deficit bins: %s" % tuple(
-    map(len, (equalBins_G, excessBins_G, deficitBins_G))))
-
-print("For B\n#equal bins: %s\t#excess bins: %s\t#deficit bins: %s" % tuple(
-    map(len, (equalBins_B, excessBins_B, deficitBins_B))))
+def init_histograms():
+    global srcHist,tgtHist
+    srcHist = {'R':srcImg.histogram()[:256],
+               'G':srcImg.histogram()[256:512],
+               'B':srcImg.histogram()[512:]
+           }
+    tgtHist = {'R':tgtImg.histogram()[:256],
+               'G':tgtImg.histogram()[256:512],
+               'B':tgtImg.histogram()[512:]
+           }
 
 
-#change one pixel function - R
-def change_n_pixels_R(curVal, tgtVal, nToChange):
+
+def make_value_list((w,h),ch,ind):
+    print("Make value list for channel",ch)
+    for i in range(w):
+        for j in range(h):
+            value = srcPix[i, j][ind]
+            pxlsByVal[ch][value].add((i,j))
+
+
+
+def sort_bins_into_lists(chan):
+    for i, _ in enumerate(srcHist[chan]):
+        src_i = srcHist[chan][i]
+        tgt_i = tgtHist[chan][i]
+        if src_i < tgt_i:
+            deficitBins[chan].append(i)
+        elif src_i > tgt_i:
+            excessBins[chan].append(i)
+        else:
+            equalBins[chan].append(i)
+
+def print_bin(chan):
+    print("For "+str(chan)+"\n#equal bins: %s\t#excess bins: %s\t#deficit bins: %s" % tuple(
+    map(len, (equalBins[chan], excessBins[chan], deficitBins[chan]))))
+
+#change one pixel function - RGB    
+def change_n_pixels(chan,curVal,tgtVal,nToChange):
     #find a pixel to change
-    candidatePxls = pxlsByVal_R[curVal]
+    candidatePxls = pxlsByVal[chan][curVal]
     chosenPxls = random.sample(candidatePxls, nToChange)
 
     #change the pixel
     for pxl in chosenPxls:
-        srcPix[pxl] = (tgtVal, srcPix[pxl][1], srcPix[pxl][2])
+        if chan == "R":
+             srcPix[pxl] = (tgtVal, srcPix[pxl][1], srcPix[pxl][2])#R
+        elif chan =="G":
+             srcPix[pxl] = (srcPix[pxl][0], tgtVal, srcPix[pxl][2])#G
+        elif chan == "B":
+             srcPix[pxl] = (srcPix[pxl][0], srcPix[pxl][1], tgtVal)#B
+        else:
+            raise ValueError       
         #update pixel list
-        pxlsByVal_R[curVal].remove(pxl)
-        pxlsByVal_R[tgtVal].add(pxl)
+        pxlsByVal[chan][curVal].remove(pxl)
+        pxlsByVal[chan][tgtVal].add(pxl)
 
     #update the histograms
-    srcHist_R[curVal] -= nToChange
-    srcHist_R[tgtVal] += nToChange
-
-
-#change one pixel function - G
-def change_n_pixels_G(curVal, tgtVal, nToChange):
-    #find a pixel to change
-    candidatePxls = pxlsByVal_G[curVal]
-    chosenPxls = random.sample(candidatePxls, nToChange)
-
-    #change the pixel
-    for pxl in chosenPxls:
-        srcPix[pxl] = (srcPix[pxl][0], tgtVal, srcPix[pxl][2])
-        #update pixel list
-        pxlsByVal_G[curVal].remove(pxl)
-        pxlsByVal_G[tgtVal].add(pxl)
-
-    #update the histograms
-    srcHist_G[curVal] -= nToChange
-    srcHist_G[tgtVal] += nToChange
-
-
-#change one pixel function - B
-def change_n_pixels_B(curVal, tgtVal, nToChange):
-    #find a pixel to change
-    candidatePxls = pxlsByVal_B[curVal]
-    chosenPxls = random.sample(candidatePxls, nToChange)
-
-    #change the pixel
-    for pxl in chosenPxls:
-        srcPix[pxl] = (srcPix[pxl][0], srcPix[pxl][1], tgtVal)
-        #update pixel list
-        pxlsByVal_B[curVal].remove(pxl)
-        pxlsByVal_B[tgtVal].add(pxl)
-
-    #update the histograms
-    srcHist_B[curVal] -= nToChange
-    srcHist_B[tgtVal] += nToChange
-
-
-#change one pixel function - R
-def change_n_pixels_smooth_R(curVal, tgtVal, nToChange):
+    update_histogram(chan,curVal,tgtVal,nToChange)
+    
+def update_histogram(chan,curVal,tgtVal,n):
+    srcHist[chan][curVal] -= n
+    srcHist[chan][tgtVal] += n
+    
+    
+def change_n_pixels_smooth(chan,curVal, tgtVal, nToChange):
     Nincrements = abs(curVal - tgtVal)
     for inc in range(Nincrements):
         # This part was throwing IndexErrors, so I adjusted it
         if tgtVal > curVal:
             try:
-                change_n_pixels_R(curVal+inc, curVal+inc+1, nToChange)
+                change_n_pixels(chan,curVal+inc, curVal+inc+1, nToChange)
             except IndexError:
-                pass
+                print("IndexError"," channel: ",chan)
         else:
             try:
-                change_n_pixels_R(curVal-inc, curVal-inc-1, nToChange)
+                change_n_pixels(chan,curVal-inc, curVal-inc-1, nToChange)
             except IndexError:
-                pass
+                print("IndexError"," channel: ",chan)
+
+def move_pixels_excess_to_deficit(chan):
+    for curValue in excessBins[chan]:
+        excess = srcHist[chan][curValue] - tgtHist[chan][curValue]
+        if curValue % 5 == 0:
+            print("On "+str(chan)+" value", curValue, "with", excess, "excess pixels")
+        while excess > 0:
+            if deficitBins[chan] == collections.deque([]):
+                break
+            else:
+                tgtValue = deficitBins[chan][0]
+            deficit = tgtHist[chan][tgtValue] - srcHist[chan][tgtValue]
+            if excess > deficit :
+                nToMove = excess - deficit
+                deficitBins[chan].popleft()
+            else:
+                nToMove = excess
+                if deficit == excess:
+                    deficitBins[chan].popleft()
+
+            change_n_pixels_smooth(chan,curValue,tgtValue,nToMove)
+            excess -= nToMove
 
 
-#change one pixel function - G
-def change_n_pixels_smooth_G(curVal, tgtVal, nToChange):
-    Nincrements = abs(curVal - tgtVal)
-    for inc in range(Nincrements):
-        # This part was throwing IndexErrors, so I adjusted it
-        if tgtVal > curVal:
-            try:
-                change_n_pixels_G(curVal+inc, curVal+inc+1, nToChange)
-            except IndexError:
-                pass
-        else:
-            try:
-                change_n_pixels_G(curVal-inc, curVal-inc-1, nToChange)
-            except IndexError:
-                pass
 
+if __name__ == "__main__":
+    #cli args
+    script,source_image,target_image = argv
 
-#change one pixel function - B
-def change_n_pixels_smooth_B(curVal, tgtVal, nToChange):
-    Nincrements = abs(curVal - tgtVal)
-    for inc in range(Nincrements):
-        # This part was throwing IndexErrors, so I adjusted it
-        if tgtVal > curVal:
-            try:
-                change_n_pixels_B(curVal+inc, curVal+inc+1, nToChange)
-            except IndexError:
-                pass
-        else:
-            try:
-                change_n_pixels_B(curVal-inc, curVal-inc-1, nToChange)
-            except IndexError:
-                pass
+    #load images
+    srcImg = Image.open(source_image)
+    tgtImg = Image.open(target_image)
+    
+    #load pixel maps
+    srcPix = srcImg.load()
+    tgtPix = tgtImg.load()
+    #srcImg.show()
+    #tgtImg.show()
+    
+	#init the histograms
+    init_histograms()
+	               
+    #sort bins into lists
+    for i,chan in enumerate(RGB_Keys):
+        #make value lists
+        pxlsByVal[chan] = [set() for _ in range(256)]
+        #make value lists
+        make_value_list(srcImg.size,chan,i) 
+        sort_bins_into_lists(chan)
+        print_bin(chan)
+        #move pixels in excess bins to deficit bins 
+        move_pixels_excess_to_deficit(chan)
 
-
-#move pixels in excess bins to deficit bins - R
-for curValue in excessBins_R:
-    excess = srcHist_R[curValue] - tgtHist_R[curValue]
-    if curValue % 5 == 0:
-        print("On R value", curValue, "with", excess, "excess pixels")
-    while excess > 0:
-        if deficitBins_R == collections.deque([]):
-            break
-        else:
-            tgtValue = deficitBins_R[0]
-        deficit = tgtHist_R[tgtValue] - srcHist_R[tgtValue]
-        if excess > deficit :
-            nToMove = excess - deficit
-            deficitBins_R.popleft()
-        else:
-            nToMove = excess
-            if deficit == excess:
-                deficitBins_R.popleft()
-
-        change_n_pixels_smooth_R(curValue,tgtValue,nToMove)
-        excess -= nToMove
-
-
-#move pixels in excess bins to deficit bins - G
-for curValue in excessBins_G:
-    excess = srcHist_G[curValue] - tgtHist_G[curValue]
-    if curValue % 5 == 0:
-        print("On G value", curValue, "with", excess, "excess pixels")
-    while excess > 0:
-        if deficitBins_G == collections.deque([]):
-            break
-        else:
-            tgtValue = deficitBins_G[0]
-        deficit = tgtHist_G[tgtValue] - srcHist_G[tgtValue]
-        if excess > deficit :
-            nToMove = excess - deficit
-            deficitBins_G.popleft()
-        else:
-            nToMove = excess
-            if deficit == excess:
-                deficitBins_G.popleft()
-
-        change_n_pixels_smooth_G(curValue,tgtValue,nToMove)
-        excess -= nToMove
-        
-
-#move pixels in excess bins to deficit bins - B
-for curValue in excessBins_B:
-    excess = srcHist_B[curValue] - tgtHist_B[curValue]
-    if curValue % 5 == 0:
-        print("On B value", curValue, "with", excess, "excess pixels")
-    while excess > 0:
-        if deficitBins_B == collections.deque([]):
-            break
-        else:
-            tgtValue = deficitBins_B[0]
-        deficit = tgtHist_B[tgtValue] - srcHist_B[tgtValue]
-        if excess > deficit :
-            nToMove = excess - deficit
-            deficitBins_B.popleft()
-        else:
-            nToMove = excess
-            if deficit == excess:
-                deficitBins_B.popleft()
-
-        change_n_pixels_smooth_B(curValue,tgtValue,nToMove)
-        excess -= nToMove
-
-srcImg.show()
+    #write out resulting image
+    srcImg.save('output.jpg')
+    
+    print("--- Done ---")
