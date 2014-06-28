@@ -155,8 +155,8 @@ if __name__ == "__main__":
     for i,chan in enumerate(RGB_Keys):
         #make value lists
         pxlsByVal[chan] = [set() for _ in range(256)]
-        #make value lists
         make_value_list(srcImg.size,chan,i) 
+        #sort bins into lists
         sort_bins_into_lists(chan)
         print_bin(chan)
         #move pixels in excess bins to deficit bins 
